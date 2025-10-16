@@ -817,6 +817,35 @@ class DpiSlidingXY(settings.RawXYProcessing):
 
 
 class MouseGesturesXY(settings.RawXYProcessing):
+    # IMPLEMENTATION PLAN - CONTINUOUS NOTIFICATION GENERATION
+    # ========================================================
+    # Current behavior: Accumulate movements, send ONE notification on button release
+    # Target behavior: Send notifications DURING movement for staggering support
+    #
+    # KEY INSIGHT: This is the bottleneck preventing staggering!
+    # - Currently: press → accumulate dx/dy → release → send notification → evaluate rules
+    # - For staggering: press → accumulate dx/dy → PERIODICALLY send notification → evaluate rules → continue accumulating
+    #
+    # IMPLEMENTATION APPROACH:
+    # Option A (Recommended): Modify move_action() to send incremental notifications
+    #   - Keep accumulating dx/dy for batch gestures (backward compatibility)
+    #   - ALSO send incremental notification with current dx/dy for staggering rules
+    #   - Staggering rules will track accumulation themselves
+    #   - Non-staggering rules ignore incremental notifications (only match on final release)
+    #
+    # Option B: Create separate notification type for incremental movements
+    #   - Use different feature flag (e.g., MOUSE_GESTURE_INCREMENTAL)
+    #   - Staggering rules listen to incremental, batch rules listen to complete
+    #
+    # PLAN (Option A):
+    # 1. Add flag to notification data indicating "incremental" vs "complete"
+    # 2. In move_action(), after accumulating dx/dy:
+    #    - Create and send incremental notification with current dx/dy
+    #    - Continue accumulating for final notification
+    # 3. In MouseGesture.evaluate():
+    #    - Staggering rules process incremental notifications
+    #    - Non-staggering rules only process complete (release) notifications
+    
     def activate_action(self):
         self.dpiSetting = next(filter(lambda s: s.name == "dpi" or s.name == "dpi_extended", self.device.settings), None)
         self.fsmState = State.IDLE
@@ -836,6 +865,7 @@ class MouseGesturesXY(settings.RawXYProcessing):
             self.data = [key.key]
 
     def release_action(self):
+        # CURRENT: Only time gesture notification is sent - the bottleneck!
         if self.fsmState == State.PRESSED:
             # emit mouse gesture notification
             self.push_mouse_event()
@@ -843,10 +873,14 @@ class MouseGesturesXY(settings.RawXYProcessing):
                 logger.info("mouse gesture notification %s", self.data)
             payload = struct.pack("!" + (len(self.data) * "h"), *self.data)
             notification = base.HIDPPNotification(0, 0, 0, 0, payload)
+            # TODO: Mark this as "complete" gesture notification
             diversion.process_notification(self.device, notification, _F.MOUSE_GESTURE)
             self.fsmState = State.IDLE
 
     def move_action(self, dx, dy):
+        # THIS IS WHERE STAGGERING SUPPORT NEEDS TO BE ADDED
+        # Currently: Just accumulates, no notification sent
+        # For staggering: Need to send incremental notifications
         if self.fsmState == State.PRESSED:
             now = time() * 1000  # time_ns() / 1e6
             if self.device.features.get_feature_version(_F.REPROG_CONTROLS_V4) >= 5 and self.starting:
@@ -860,6 +894,14 @@ class MouseGesturesXY(settings.RawXYProcessing):
             dy = float(dy) / float(dpi) * 15.0  # This multiplier yields a more-or-less DPI-independent dx of about 5/cm
             self.dy += dy
             self.lastEv = now
+            
+            # TODO: For staggering support, add here:
+            # # Send incremental notification for staggering rules
+            # incremental_data = [self.data[0], 0, int(dx), int(dy)]  # key + movement marker + dx + dy
+            # incremental_payload = struct.pack("!" + (len(incremental_data) * "h"), *incremental_data)
+            # incremental_notification = base.HIDPPNotification(0, 0, 0, 0, incremental_payload)
+            # # Mark as incremental somehow (e.g., special flag in data or use notification field)
+            # diversion.process_notification(self.device, incremental_notification, _F.MOUSE_GESTURE)
 
     def key_action(self, key):
         self.push_mouse_event()
