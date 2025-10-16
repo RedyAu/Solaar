@@ -829,6 +829,8 @@ class MouseGesturesXY(settings.RawXYProcessing):
         self.dy = 0.0
         self.lastEv = None
         self.last_incremental_notification = None
+        self.dx_raw = 0.0
+        self.dy_raw = 0.0
         self.data = []
 
     def press_action(self, key):
@@ -891,20 +893,21 @@ class MouseGesturesXY(settings.RawXYProcessing):
                 self.last_incremental_notification is None or 
                 (now - self.last_incremental_notification) >= MIN_NOTIFICATION_INTERVAL_MS
             ):
-                # Create incremental notification: [key_code, -1, dx_raw, dy_raw]
-                # The -1 marker indicates this is an incremental update (not complete gesture)
-                incremental_data = [self.data[0], -1, dx_to_send, dy_to_send]
-                incremental_payload = struct.pack("!" + (len(incremental_data) * "h"), *incremental_data)
-                incremental_notification = base.HIDPPNotification(0, 0, 0, 0, incremental_payload)
-                diversion.process_notification(self.device, incremental_notification, _F.MOUSE_GESTURE)
+                for chunk_dx, chunk_dy in self._split_movement(dx_to_send, dy_to_send):
+                    incremental_data = [self.data[0], -1, chunk_dx, chunk_dy]
+                    incremental_payload = struct.pack("!" + (len(incremental_data) * "h"), *incremental_data)
+                    incremental_notification = base.HIDPPNotification(0, 0, 0, 0, incremental_payload)
+                    diversion.process_notification(self.device, incremental_notification, _F.MOUSE_GESTURE)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "incremental gesture chunk: key=%s dx=%d dy=%d",
+                            self.data[0],
+                            chunk_dx,
+                            chunk_dy,
+                        )
                 self.last_incremental_notification = now
-                
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("incremental gesture notification: key=%s dx_raw=%d dy_raw=%d", 
-                               self.data[0], dx_to_send, dy_to_send)
-                
-                # Subtract the integer part we just sent, keeping fractional remainder
-                # This preserves sub-pixel precision for slow movements
+
+                # Remove the integer portion that was just sent, keeping sub-pixel remainders
                 self.dx_raw -= dx_to_send
                 self.dy_raw -= dy_to_send
 
@@ -928,6 +931,36 @@ class MouseGesturesXY(settings.RawXYProcessing):
         self.dy = 0.0
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("mouse gesture move event %d %d %s", x, y, self.data)
+
+    @staticmethod
+    def _split_movement(dx, dy, max_step=16):
+        """Split large deltas into smaller chunks to trigger staggering repeatedly."""
+        chunks = []
+        remaining_dx = dx
+        remaining_dy = dy
+
+        while remaining_dx != 0 or remaining_dy != 0:
+            step_dx = MouseGesturesXY._clamp_step(remaining_dx, max_step)
+            step_dy = MouseGesturesXY._clamp_step(remaining_dy, max_step)
+
+            if step_dx == 0 and remaining_dx != 0:
+                step_dx = 1 if remaining_dx > 0 else -1
+            if step_dy == 0 and remaining_dy != 0:
+                step_dy = 1 if remaining_dy > 0 else -1
+
+            chunks.append((step_dx, step_dy))
+            remaining_dx -= step_dx
+            remaining_dy -= step_dy
+
+        return chunks
+
+    @staticmethod
+    def _clamp_step(value, max_step):
+        if value > 0:
+            return min(value, max_step)
+        if value < 0:
+            return max(value, -max_step)
+        return 0
 
 
 class DivertKeys(settings.Settings):
