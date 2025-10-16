@@ -1094,7 +1094,11 @@ class MouseGesture(Condition):
         # Dict format: {"movements": ["Mouse Up"], "staggering": True, "distance": 50}
         # List format: ["Mouse Up"] (legacy, no staggering)
         if isinstance(movements, dict):
-            self.movements = movements.get("movements", [])
+            # Extract movements - ensure it's always a list even if YAML gave us a scalar
+            movements_data = movements.get("movements", [])
+            if isinstance(movements_data, str):
+                movements_data = [movements_data]
+            self.movements = movements_data
             self.staggering = movements.get("staggering", False)
             self.stagger_distance = movements.get("distance", 50)
             

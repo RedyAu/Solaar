@@ -47,6 +47,20 @@ def test_staggering_initialization_string_format():
     assert gesture.movements == ["Mouse Up"]
 
 
+def test_yaml_scalar_movements_string():
+    """Test that YAML scalar string movements (from single-element list) are handled correctly"""
+    # This simulates YAML deserializing movements: Mouse Down (string) instead of movements: [Mouse Down] (list)
+    config = {
+        "movements": "Mouse Down",  # YAML gives us a string instead of list
+        "staggering": True,
+        "distance": 50
+    }
+    gesture = diversion.MouseGesture(config, warn=False)
+    assert gesture.movements == ["Mouse Down"], "Should convert string to list"
+    assert gesture.staggering is True
+    assert gesture.stagger_distance == 50
+
+
 def test_staggering_data_serialization_with_staggering():
     """Test serialization includes staggering params"""
     config = {
