@@ -894,6 +894,11 @@ class MouseGesturesXY(settings.RawXYProcessing):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug("incremental gesture notification: key=%s dx=%d dy=%d", 
                                self.data[0], int(self.dx), int(self.dy))
+                
+                # Reset accumulators after sending notification
+                # This ensures each notification represents distance since last notification, not total distance
+                self.dx = 0
+                self.dy = 0
 
     def key_action(self, key):
         self.push_mouse_event()
