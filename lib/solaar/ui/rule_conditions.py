@@ -660,6 +660,7 @@ class MouseGestureUI(ConditionUI):
             self.stagger_distance_field.set_value(component.stagger_distance if component.stagger_distance else 50)
             self.dead_zone_field.set_value(component.dead_zone if component.dead_zone else 0)
         self._update_option_sensitivity()
+        self._update_movement_controls()
 
     def collect_value(self):
         movements = []
@@ -700,6 +701,7 @@ class MouseGestureUI(ConditionUI):
     def _on_staggering_toggled(self, checkbox):
         """Handle staggering checkbox toggle"""
         self._update_option_sensitivity()
+        self._update_movement_controls()
         self._on_update()
 
     def _update_option_sensitivity(self):
@@ -714,3 +716,19 @@ class MouseGestureUI(ConditionUI):
         ]
         for widget in targets:
             widget.set_sensitive(is_active)
+
+    def _update_movement_controls(self):
+        staggering_active = self.staggering_checkbox.get_active()
+
+        # Disable add button when staggering active
+        self.add_btn.set_sensitive(not staggering_active)
+
+        # Iterate over movement fields and delete buttons
+        for idx, (field, del_btn) in enumerate(zip(self.fields, self.del_btns)):
+            field_active = not staggering_active or idx == 0
+            field.set_sensitive(field_active)
+            if field.get_visible():
+                field.get_child().set_sensitive(field_active)
+
+            del_btn.set_sensitive(not staggering_active)
+
