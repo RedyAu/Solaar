@@ -875,30 +875,38 @@ class MouseGesturesXY(settings.RawXYProcessing):
             self.dy += dy_norm
             self.lastEv = now
             
-            # Send incremental notification for staggering rules
-            # Use accumulated self.dx/self.dy values (not the per-event dx_norm/dy_norm which are too small)
+            # Send incremental notification for staggering rules using RAW pixel counts
+            # Accumulate raw pixel values to preserve sub-pixel precision for slow movements
             # Rate limit to 50 Hz (20ms minimum interval)
             MIN_NOTIFICATION_INTERVAL_MS = 20
-            if (self.dx != 0 or self.dy != 0) and (
+            self.dx_raw = getattr(self, 'dx_raw', 0.0) + dx  # Accumulate as float to preserve fractional pixels
+            self.dy_raw = getattr(self, 'dy_raw', 0.0) + dy
+            
+            # Only send notification if we have at least 1 pixel of movement (after integer conversion)
+            # and rate limit allows
+            dx_to_send = int(self.dx_raw)
+            dy_to_send = int(self.dy_raw)
+            
+            if (dx_to_send != 0 or dy_to_send != 0) and (
                 self.last_incremental_notification is None or 
                 (now - self.last_incremental_notification) >= MIN_NOTIFICATION_INTERVAL_MS
             ):
-                # Create incremental notification: [key_code, -1, dx, dy]
+                # Create incremental notification: [key_code, -1, dx_raw, dy_raw]
                 # The -1 marker indicates this is an incremental update (not complete gesture)
-                incremental_data = [self.data[0], -1, int(self.dx), int(self.dy)]
+                incremental_data = [self.data[0], -1, dx_to_send, dy_to_send]
                 incremental_payload = struct.pack("!" + (len(incremental_data) * "h"), *incremental_data)
                 incremental_notification = base.HIDPPNotification(0, 0, 0, 0, incremental_payload)
                 diversion.process_notification(self.device, incremental_notification, _F.MOUSE_GESTURE)
                 self.last_incremental_notification = now
                 
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("incremental gesture notification: key=%s dx=%d dy=%d", 
-                               self.data[0], int(self.dx), int(self.dy))
+                    logger.debug("incremental gesture notification: key=%s dx_raw=%d dy_raw=%d", 
+                               self.data[0], dx_to_send, dy_to_send)
                 
-                # Reset accumulators after sending notification
-                # This ensures each notification represents distance since last notification, not total distance
-                self.dx = 0
-                self.dy = 0
+                # Subtract the integer part we just sent, keeping fractional remainder
+                # This preserves sub-pixel precision for slow movements
+                self.dx_raw -= dx_to_send
+                self.dy_raw -= dy_to_send
 
     def key_action(self, key):
         self.push_mouse_event()
