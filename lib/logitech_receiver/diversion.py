@@ -325,13 +325,16 @@ def xy_direction(_x, _y):
 
 
 # Global accumulator for staggering gestures
-# Key: (device_id, gesture_hash), Value: accumulated_distance
+# Key: (device_id, gesture_hash), Value: {
+#     "accum": accumulated_distance,
+#     "threshold": current_threshold_for_trigger
+# }
 _stagger_accumulators = {}
 
 
 def _get_accumulator_key(device, gesture):
     """Create unique key for tracking gesture state"""
-    gesture_id = hash(tuple(gesture.movements) + (gesture.stagger_distance,))
+    gesture_id = hash(tuple(gesture.movements) + (gesture.stagger_distance, gesture.dead_zone, gesture.staggering))
     return (id(device), gesture_id)
 
 
@@ -1100,7 +1103,24 @@ class MouseGesture(Condition):
                 movements_data = [movements_data]
             self.movements = movements_data
             self.staggering = movements.get("staggering", False)
-            self.stagger_distance = movements.get("distance", 50)
+            try:
+                self.stagger_distance = int(movements.get("distance", 50))
+            except (TypeError, ValueError):
+                if warn:
+                    logger.warning(
+                        "rule Mouse Gesture staggering distance invalid: %s. Using default 50.",
+                        movements.get("distance"),
+                    )
+                self.stagger_distance = 50
+            try:
+                self.dead_zone = int(movements.get("dead_zone", 0))
+            except (TypeError, ValueError):
+                if warn:
+                    logger.warning(
+                        "rule Mouse Gesture dead zone invalid: %s. Using 0.",
+                        movements.get("dead_zone"),
+                    )
+                self.dead_zone = 0
             
             # Validate: staggering only allowed with single-direction gestures
             if self.staggering:
@@ -1113,12 +1133,27 @@ class MouseGesture(Condition):
                             movement_count, self.movements
                         )
                     self.staggering = False
+                if self.stagger_distance <= 0:
+                    if warn:
+                        logger.warning(
+                            "rule Mouse Gesture staggering distance must be positive, got %s. Disabling staggering.",
+                            self.stagger_distance,
+                        )
+                    self.staggering = False
+                if self.dead_zone < 0:
+                    if warn:
+                        logger.warning(
+                            "rule Mouse Gesture dead zone must be non-negative, got %s. Using 0.",
+                            self.dead_zone,
+                        )
+                    self.dead_zone = 0
         else:
             if isinstance(movements, str):
                 movements = [movements]
             self.movements = movements
             self.staggering = False
             self.stagger_distance = 0
+            self.dead_zone = 0
         
         # Validate movements
         for x in self.movements:
@@ -1129,7 +1164,10 @@ class MouseGesture(Condition):
     def __str__(self):
         result = "MouseGesture: " + " ".join(self.movements)
         if self.staggering:
-            result += f" (staggering: {self.stagger_distance}px)"
+            if self.dead_zone:
+                result += f" (staggering: {self.stagger_distance}px, dead zone: {self.dead_zone}px)"
+            else:
+                result += f" (staggering: {self.stagger_distance}px)"
         return result
 
     def evaluate(self, feature, notification: HIDPPNotification, device, last_result):
@@ -1177,19 +1215,38 @@ class MouseGesture(Condition):
         # Calculate distance in target direction
         directional_distance = _calculate_directional_distance(dx, dy, target_direction)
         
-        # Track accumulation
-        acc_key = _get_accumulator_key(device, self)
-        accumulated = _stagger_accumulators.get(acc_key, 0.0) + directional_distance
+        if self.stagger_distance <= 0:
+            return False
 
-        # Trigger if threshold exceeded
-        if accumulated >= self.stagger_distance > 0:
-            _stagger_accumulators[acc_key] = 0.0
+        acc_key = _get_accumulator_key(device, self)
+        state = _stagger_accumulators.get(acc_key)
+        if state is None:
+            state = {
+                "accum": 0.0,
+                "threshold": self.stagger_distance + max(0, self.dead_zone),
+            }
+
+        state["accum"] += directional_distance
+
+        threshold = state["threshold"]
+
+        if threshold <= 0:
+            threshold = self.stagger_distance
+
+        if state["accum"] >= threshold:
+            state["accum"] = 0.0
+            state["threshold"] = self.stagger_distance
+            _stagger_accumulators[acc_key] = state
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("staggering gesture triggered: %s (accumulated: %s, threshold: %s)", 
-                           self, accumulated, self.stagger_distance)
+                logger.debug(
+                    "staggering gesture triggered: %s (threshold: %s, dead zone: %s)",
+                    self,
+                    self.stagger_distance,
+                    self.dead_zone,
+                )
             return True
-        
-        _stagger_accumulators[acc_key] = accumulated
+
+        _stagger_accumulators[acc_key] = state
         return False
     
     def _evaluate_batch(self, data, movement_offset):
@@ -1214,7 +1271,8 @@ class MouseGesture(Condition):
             return {"MouseGesture": {
                 "movements": [str(m) for m in self.movements],
                 "staggering": True,
-                "distance": self.stagger_distance
+                "distance": self.stagger_distance,
+                "dead_zone": self.dead_zone,
             }}
         return {"MouseGesture": [str(m) for m in self.movements]}
 

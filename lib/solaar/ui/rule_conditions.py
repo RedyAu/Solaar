@@ -542,27 +542,42 @@ class MouseGestureUI(ConditionUI):
         self.add_btn.connect(GtkSignal.CLICKED.value, self._clicked_add)
         self.widgets[self.add_btn] = (1, 1, 1, 1)
         
-        # Staggering widgets
+        # Staggering widgets container
+        self.options_grid = Gtk.Grid(row_spacing=6, column_spacing=6, halign=Gtk.Align.START)
+
         self.staggering_checkbox = Gtk.CheckButton(
-            label=_("Enable Staggering (trigger repeatedly every N pixels)"),
+            label=_("Enable staggering (trigger repeatedly every N pixels)"),
             halign=Gtk.Align.START,
             valign=Gtk.Align.CENTER,
         )
         self.staggering_checkbox.connect(GtkSignal.TOGGLED.value, self._on_staggering_toggled)
-        self.widgets[self.staggering_checkbox] = (0, 2, 5, 1)  # Row will be adjusted dynamically
-        
-        self.stagger_distance_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, halign=Gtk.Align.CENTER)
-        self.stagger_distance_label = Gtk.Label(label=_("Stagger Distance:"), halign=Gtk.Align.END)
-        self.stagger_distance_field = Gtk.SpinButton.new_with_range(10, 500, 5)
+        self.options_grid.attach(self.staggering_checkbox, 0, 0, 3, 1)
+
+        self.stagger_distance_label = Gtk.Label(label=_("Stagger distance:"), halign=Gtk.Align.END)
+        self.stagger_distance_field = Gtk.SpinButton.new_with_range(1, 1000, 1)
         self.stagger_distance_field.set_value(50)
         self.stagger_distance_field.set_digits(0)
+        self.stagger_distance_field.set_hexpand(False)
         self.stagger_distance_field.connect(GtkSignal.VALUE_CHANGED.value, self._on_update)
         self.stagger_distance_units = Gtk.Label(label=_("pixels"), halign=Gtk.Align.START)
-        
-        self.stagger_distance_box.pack_start(self.stagger_distance_label, False, False, 0)
-        self.stagger_distance_box.pack_start(self.stagger_distance_field, False, False, 0)
-        self.stagger_distance_box.pack_start(self.stagger_distance_units, False, False, 0)
-        self.widgets[self.stagger_distance_box] = (0, 3, 5, 1)  # Row will be adjusted dynamically
+
+        self.options_grid.attach(self.stagger_distance_label, 0, 1, 1, 1)
+        self.options_grid.attach(self.stagger_distance_field, 1, 1, 1, 1)
+        self.options_grid.attach(self.stagger_distance_units, 2, 1, 1, 1)
+
+        self.dead_zone_label = Gtk.Label(label=_("Dead zone:"), halign=Gtk.Align.END)
+        self.dead_zone_field = Gtk.SpinButton.new_with_range(0, 1000, 1)
+        self.dead_zone_field.set_value(0)
+        self.dead_zone_field.set_digits(0)
+        self.dead_zone_field.set_hexpand(False)
+        self.dead_zone_field.connect(GtkSignal.VALUE_CHANGED.value, self._on_update)
+        self.dead_zone_units = Gtk.Label(label=_("pixels"), halign=Gtk.Align.START)
+
+        self.options_grid.attach(self.dead_zone_label, 0, 2, 1, 1)
+        self.options_grid.attach(self.dead_zone_field, 1, 2, 1, 1)
+        self.options_grid.attach(self.dead_zone_units, 2, 2, 1, 1)
+
+        self.widgets[self.options_grid] = (0, 2, 5, 1)  # Row will be adjusted dynamically
 
     def _create_field(self):
         field = Gtk.ComboBoxText.new_with_entry()
@@ -603,12 +618,6 @@ class MouseGestureUI(ConditionUI):
         self.show(self.component, editable=True)
         self._on_update_callback()
 
-    def _on_staggering_toggled(self, checkbox):
-        """Handle staggering checkbox toggle"""
-        is_active = checkbox.get_active()
-        self.stagger_distance_box.set_sensitive(is_active)
-        self._on_update()
-    
     def _on_update(self, *args):
         super()._on_update(*args)
         for i, f in enumerate(self.fields):
@@ -628,10 +637,10 @@ class MouseGestureUI(ConditionUI):
         
         # Position add button and staggering widgets dynamically based on number of movements
         self.widgets[self.add_btn] = (n + 1, 1, 1, 1)
-        self.widgets[self.staggering_checkbox] = (0, n + 2, 5, 1)
-        self.widgets[self.stagger_distance_box] = (0, n + 3, 5, 1)
+        self.widgets[self.options_grid] = (0, n + 2, 5, 1)
         
         super().show(component, editable)
+        self.options_grid.show_all()
         
         # Show movement fields
         for i in range(n):
@@ -649,17 +658,23 @@ class MouseGestureUI(ConditionUI):
         with self.ignore_changes():
             self.staggering_checkbox.set_active(component.staggering)
             self.stagger_distance_field.set_value(component.stagger_distance if component.stagger_distance else 50)
-            self.stagger_distance_box.set_sensitive(component.staggering)
+            self.dead_zone_field.set_value(component.dead_zone if component.dead_zone else 0)
+        self._update_option_sensitivity()
 
     def collect_value(self):
-        movements = [f.get_active_text().strip() for f in self.fields if f.get_visible()]
+        movements = []
+        for field in self.fields:
+            if field.get_visible():
+                text = field.get_active_text() or field.get_child().get_text()
+                movements.append(text.strip())
         
         # Return dict format when staggering is enabled
         if self.staggering_checkbox.get_active():
             return {
                 "movements": movements,
                 "staggering": True,
-                "distance": int(self.stagger_distance_field.get_value())
+                "distance": int(self.stagger_distance_field.get_value()),
+                "dead_zone": int(self.dead_zone_field.get_value()),
             }
         
         # Return list format for non-staggering (legacy compatibility)
@@ -676,5 +691,26 @@ class MouseGestureUI(ConditionUI):
         else:
             label = " -> ".join(component.movements)
             if component.staggering:
-                label += f" (staggering: {component.stagger_distance}px)"
+                label += f" (staggering: {component.stagger_distance}px"
+                if component.dead_zone:
+                    label += f", dead zone: {component.dead_zone}px"
+                label += ")"
             return label
+
+    def _on_staggering_toggled(self, checkbox):
+        """Handle staggering checkbox toggle"""
+        self._update_option_sensitivity()
+        self._on_update()
+
+    def _update_option_sensitivity(self):
+        is_active = self.staggering_checkbox.get_active()
+        targets = [
+            self.stagger_distance_label,
+            self.stagger_distance_field,
+            self.stagger_distance_units,
+            self.dead_zone_label,
+            self.dead_zone_field,
+            self.dead_zone_units,
+        ]
+        for widget in targets:
+            widget.set_sensitive(is_active)
