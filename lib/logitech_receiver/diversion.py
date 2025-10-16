@@ -1179,16 +1179,17 @@ class MouseGesture(Condition):
         
         # Track accumulation
         acc_key = _get_accumulator_key(device, self)
-        _stagger_accumulators[acc_key] = _stagger_accumulators.get(acc_key, 0.0) + directional_distance
-        
+        accumulated = _stagger_accumulators.get(acc_key, 0.0) + directional_distance
+
         # Trigger if threshold exceeded
-        if _stagger_accumulators[acc_key] >= self.stagger_distance:
-            _stagger_accumulators[acc_key] -= self.stagger_distance  # Keep remainder
+        if accumulated >= self.stagger_distance > 0:
+            _stagger_accumulators[acc_key] = 0.0
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("staggering gesture triggered: %s (accumulated: %s, threshold: %s)", 
-                           self, _stagger_accumulators[acc_key] + self.stagger_distance, self.stagger_distance)
+                           self, accumulated, self.stagger_distance)
             return True
         
+        _stagger_accumulators[acc_key] = accumulated
         return False
     
     def _evaluate_batch(self, data, movement_offset):
