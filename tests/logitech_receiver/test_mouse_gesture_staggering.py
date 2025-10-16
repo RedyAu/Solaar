@@ -23,11 +23,13 @@ def test_staggering_initialization_dict_format():
     config = {
         "movements": ["Mouse Up"],
         "staggering": True,
-        "distance": 75
+        "distance": 75,
+        "dead_zone": 15,
     }
     gesture = diversion.MouseGesture(config)
     assert gesture.staggering is True
     assert gesture.stagger_distance == 75
+    assert gesture.dead_zone == 15
     assert gesture.movements == ["Mouse Up"]
 
 
@@ -66,7 +68,8 @@ def test_staggering_data_serialization_with_staggering():
     config = {
         "movements": ["Mouse Up"],
         "staggering": True,
-        "distance": 50
+        "distance": 50,
+        "dead_zone": 10,
     }
     gesture = diversion.MouseGesture(config)
     data = gesture.data()
@@ -76,6 +79,7 @@ def test_staggering_data_serialization_with_staggering():
     assert data["MouseGesture"]["movements"] == ["Mouse Up"]
     assert data["MouseGesture"]["staggering"] is True
     assert data["MouseGesture"]["distance"] == 50
+    assert data["MouseGesture"]["dead_zone"] == 10
 
 
 def test_staggering_data_serialization_without_staggering():
@@ -93,13 +97,37 @@ def test_staggering_str_representation():
     config = {
         "movements": ["Mouse Up"],
         "staggering": True,
-        "distance": 50
+        "distance": 50,
+        "dead_zone": 0,
     }
     gesture = diversion.MouseGesture(config)
     assert "staggering: 50px" in str(gesture)
     
     gesture_no_stagger = diversion.MouseGesture(["Mouse Up"])
     assert "staggering" not in str(gesture_no_stagger)
+
+
+def test_dead_zone_delays_first_trigger():
+    """First trigger should include the configured dead zone distance."""
+    gesture = diversion.MouseGesture({
+        "movements": ["Mouse Up"],
+        "staggering": True,
+        "distance": 20,
+        "dead_zone": 10,
+    })
+    device = MockDevice()
+
+    diversion._stagger_accumulators.clear()
+
+    data = struct.pack("!hhhh", 0xC4, -1, 0, -20)
+    notif = HIDPPNotification(0, 0, 0, 0, data)
+    result = gesture.evaluate(SupportedFeature.MOUSE_GESTURE, notif, device, None)
+    assert result is False  # Only 20px so far; need 30 (20 + 10)
+
+    data = struct.pack("!hhhh", 0xC4, -1, 0, -10)
+    notif = HIDPPNotification(0, 0, 0, 0, data)
+    result = gesture.evaluate(SupportedFeature.MOUSE_GESTURE, notif, device, None)
+    assert result is True  # Now crossed 30px total
 
 
 def test_incremental_notification_accumulation():
@@ -269,7 +297,9 @@ def test_accumulator_cleanup_on_release():
     # Verify accumulator exists
     acc_key = diversion._get_accumulator_key(device, gesture)
     assert acc_key in diversion._stagger_accumulators
-    assert diversion._stagger_accumulators[acc_key] == 30
+    state = diversion._stagger_accumulators[acc_key]
+    assert state["accum"] == 30
+    assert state["threshold"] == 50
     
     # Now simulate button release by clearing for this device
     device_id = id(device)
