@@ -82,7 +82,7 @@
 │   MouseGesture.evaluate()                                           │
 │   ├─ Unpack notification data                                      │
 │   ├─ Match against expected pattern                                │
-│   │  Example: ["Mouse Gesture Button", "Mouse Up"]                 │
+│   │  Example: ["Mouse Up"]  (button configured separately)         │
 │   │  Data:    [0xC4, 0, 15, -55] ✓ Matches!                        │
 │   └─ Return: True (match) or False (no match)                      │
 │                                                                     │
@@ -297,12 +297,14 @@ _stagger_accumulators = {
 # User configuration
 ---
 - MouseGesture:
-    movements: [Mouse Gesture Button, Mouse Up]
+    movements: [Mouse Up]
     staggering: true
     distance: 50
 - KeyPress: [XF86_AudioRaiseVolume, click]
 ---
 ```
+
+**Note:** The gesture button (e.g., side button) is configured separately in device settings under "Key/Button Diversion" → "Mouse Gestures".
 
 ### Execution Flow
 ```
@@ -357,10 +359,6 @@ _stagger_accumulators = {
 │                                                                │
 │  Mouse gesture with optional initiating button followed by    │
 │  zero or more mouse movements.                                │
-│                                                                │
-│  ┌──────────────────────────────┐ ┌────────┐                 │
-│  │ Mouse Gesture Button     ▾   │ │ Delete │                 │
-│  └──────────────────────────────┘ └────────┘                 │
 │                                                                │
 │  ┌──────────────────────────────┐ ┌────────┐                 │
 │  │ Mouse Up                 ▾   │ │ Delete │                 │

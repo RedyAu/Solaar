@@ -263,13 +263,13 @@ A: Uncheck "Enable Staggering" in the UI, or use list format in YAML.
 ```yaml
 ---
 - MouseGesture:
-    movements: [Mouse Gesture Button, Mouse Up]
+    movements: [Mouse Up]
     staggering: true
     distance: 40
 - KeyPress: [XF86_AudioRaiseVolume, click]
 ---
 - MouseGesture:
-    movements: [Mouse Gesture Button, Mouse Down]
+    movements: [Mouse Down]
     staggering: true
     distance: 40
 - KeyPress: [XF86_AudioLowerVolume, click]
@@ -280,13 +280,13 @@ A: Uncheck "Enable Staggering" in the UI, or use list format in YAML.
 ```yaml
 ---
 - MouseGesture:
-    movements: [Mouse Gesture Button, Mouse Up]
+    movements: [Mouse Up]
     staggering: true
     distance: 30
 - MouseScroll: [0, 3]  # Scroll up 3 units
 ---
 - MouseGesture:
-    movements: [Mouse Gesture Button, Mouse Down]
+    movements: [Mouse Down]
     staggering: true
     distance: 30
 - MouseScroll: [0, -3]  # Scroll down 3 units
@@ -297,18 +297,20 @@ A: Uncheck "Enable Staggering" in the UI, or use list format in YAML.
 ```yaml
 ---
 - MouseGesture:
-    movements: [Mouse Gesture Button, Mouse Up]
+    movements: [Mouse Up]
     staggering: true
     distance: 60
 - KeyPress: [[Control_L, plus], click]  # Zoom in
 ---
 - MouseGesture:
-    movements: [Mouse Gesture Button, Mouse Down]
+    movements: [Mouse Down]
     staggering: true
     distance: 60
 - KeyPress: [[Control_L, minus], click]  # Zoom out
 ---
 ```
+
+**Note:** The gesture button itself (e.g., side button, back button) is configured separately in Solaar's device settings under "Key/Button Diversion" and set to "Mouse Gestures" mode. The MouseGesture rule only specifies the direction(s) to detect.
 
 ## Troubleshooting
 

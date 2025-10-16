@@ -1097,6 +1097,18 @@ class MouseGesture(Condition):
             self.movements = movements.get("movements", [])
             self.staggering = movements.get("staggering", False)
             self.stagger_distance = movements.get("distance", 50)
+            
+            # Validate: staggering only allowed with single-direction gestures
+            if self.staggering:
+                # Count actual movement directions (not initiating keys)
+                movement_count = sum(1 for m in self.movements if m in self.MOVEMENTS)
+                if movement_count != 1:
+                    if warn:
+                        logger.warning(
+                            "rule Mouse Gesture staggering requires exactly one direction, got %d: %s. Disabling staggering.",
+                            movement_count, self.movements
+                        )
+                    self.staggering = False
         else:
             if isinstance(movements, str):
                 movements = [movements]

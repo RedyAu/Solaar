@@ -475,12 +475,14 @@ Use case: Volume control while dragging
 # Example rule configuration
 ---
 - MouseGesture:
-    movements: [Mouse Gesture Button, Mouse Up]
+    movements: [Mouse Up]
     staggering: true
     distance: 50
 - KeyPress: [XF86_AudioRaiseVolume, click]
 ---
 ```
+
+**Note:** The gesture button (e.g., side button) is configured separately in device settings under "Key/Button Diversion" → "Mouse Gestures". Only movement direction(s) are specified in the MouseGesture rule.
 
 ## Implementation Phases
 
