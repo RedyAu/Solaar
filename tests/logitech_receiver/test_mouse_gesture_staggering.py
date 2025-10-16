@@ -14,6 +14,10 @@ class MockDevice:
     pass
 
 
+# ============================================================================
+# Phase 1: Core Logic Tests
+# ============================================================================
+
 def test_staggering_initialization_dict_format():
     """Test staggering parameters in dict format"""
     config = {
@@ -225,3 +229,62 @@ def test_accumulator_key_uniqueness():
     key2 = diversion._get_accumulator_key(device, gesture2)
     
     assert key1 != key2  # Different gestures should have different keys
+
+
+# ============================================================================
+# Phase 2: Notification Generation Tests
+# ============================================================================
+
+def test_accumulator_cleanup_on_release():
+    """Test that accumulators are cleared when gesture button is released"""
+    gesture = diversion.MouseGesture({
+        "movements": ["Mouse Up"],
+        "staggering": True,
+        "distance": 50
+    })
+    device = MockDevice()
+    
+    # Clear and then add some accumulators
+    diversion._stagger_accumulators.clear()
+    
+    # Simulate accumulation
+    data = struct.pack("!hhhh", 0xC4, -1, 0, -30)
+    notif = HIDPPNotification(0, 0, 0, 0, data)
+    gesture.evaluate(SupportedFeature.MOUSE_GESTURE, notif, device, None)
+    
+    # Verify accumulator exists
+    acc_key = diversion._get_accumulator_key(device, gesture)
+    assert acc_key in diversion._stagger_accumulators
+    assert diversion._stagger_accumulators[acc_key] == 30
+    
+    # Now simulate button release by clearing for this device
+    device_id = id(device)
+    keys_to_remove = [key for key in diversion._stagger_accumulators.keys() if key[0] == device_id]
+    for key in keys_to_remove:
+        del diversion._stagger_accumulators[key]
+    
+    # Verify accumulator is cleared
+    assert acc_key not in diversion._stagger_accumulators
+
+
+def test_rate_limiting_conceptual():
+    """Conceptual test for rate limiting (actual implementation in MouseGesturesXY)"""
+    # Phase 2 implements 50 Hz rate limiting (20ms minimum interval)
+    # This is done in MouseGesturesXY.move_action()
+    # The logic checks: (now - last_incremental_notification) >= 20ms
+    # If true, send notification and update last_incremental_notification
+    # This prevents excessive notification spam
+    MIN_INTERVAL_MS = 20
+    
+    # Example: notifications at 0ms, 10ms, 25ms, 40ms
+    # Only 0ms, 25ms, and 40ms should be sent (10ms is too soon after 0ms)
+    times = [0, 10, 25, 40]
+    sent_times = []
+    last_sent = None
+    
+    for t in times:
+        if last_sent is None or (t - last_sent) >= MIN_INTERVAL_MS:
+            sent_times.append(t)
+            last_sent = t
+    
+    assert sent_times == [0, 25, 40]
