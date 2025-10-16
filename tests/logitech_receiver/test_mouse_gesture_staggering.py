@@ -320,9 +320,9 @@ def test_rate_limiting_conceptual():
     # This prevents excessive notification spam
     MIN_INTERVAL_MS = 20
     
-    # Example: notifications at 0ms, 10ms, 25ms, 40ms
-    # Only 0ms, 25ms, and 40ms should be sent (10ms is too soon after 0ms)
-    times = [0, 10, 25, 40]
+    # Example: notifications at 0ms, 10ms, 25ms, 45ms
+    # Only 0ms, 25ms, and 45ms should be sent (10ms is too soon after 0ms)
+    times = [0, 10, 25, 45]
     sent_times = []
     last_sent = None
     
@@ -331,7 +331,7 @@ def test_rate_limiting_conceptual():
             sent_times.append(t)
             last_sent = t
     
-    assert sent_times == [0, 25, 40]
+    assert sent_times == [0, 25, 45]
 
 
 def test_staggering_requires_single_direction():

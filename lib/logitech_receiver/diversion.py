@@ -1064,23 +1064,6 @@ class TestBytes(Condition):
 
 
 class MouseGesture(Condition):
-    # IMPLEMENTATION PLAN - STAGGERING FEATURE
-    # ========================================
-    # Current behavior: MouseGesture matches complete gesture sequences after button release
-    # Target behavior: With staggering enabled, trigger repeatedly while button held and moving
-    # 
-    # PLAN:
-    # 1. Add parameters: self.staggering (bool) and self.stagger_distance (int, pixels)
-    # 2. Modify __init__ to accept optional dict parameter: {"movements": [...], "staggering": True, "distance": 50}
-    # 3. Store staggering state per device/gesture in a global dict for tracking accumulated distance
-    # 4. In evaluate(), when staggering is enabled:
-    #    - Track cumulative distance moved in the matched direction since last trigger
-    #    - Trigger when distance exceeds stagger_distance, then reset counter
-    #    - Continue checking while button is held (not just on release)
-    # 5. Add data() method support for serializing staggering parameters
-    #
-    # This allows rules like: MouseGesture with "Mouse Up" + staggering every 50px = volume up repeatedly
-    
     MOVEMENTS = [
         "Mouse Up",
         "Mouse Down",
