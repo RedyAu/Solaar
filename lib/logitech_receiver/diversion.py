@@ -1029,6 +1029,23 @@ class TestBytes(Condition):
 
 
 class MouseGesture(Condition):
+    # IMPLEMENTATION PLAN - STAGGERING FEATURE
+    # ========================================
+    # Current behavior: MouseGesture matches complete gesture sequences after button release
+    # Target behavior: With staggering enabled, trigger repeatedly while button held and moving
+    # 
+    # PLAN:
+    # 1. Add parameters: self.staggering (bool) and self.stagger_distance (int, pixels)
+    # 2. Modify __init__ to accept optional dict parameter: {"movements": [...], "staggering": True, "distance": 50}
+    # 3. Store staggering state per device/gesture in a global dict for tracking accumulated distance
+    # 4. In evaluate(), when staggering is enabled:
+    #    - Track cumulative distance moved in the matched direction since last trigger
+    #    - Trigger when distance exceeds stagger_distance, then reset counter
+    #    - Continue checking while button is held (not just on release)
+    # 5. Add data() method support for serializing staggering parameters
+    #
+    # This allows rules like: MouseGesture with "Mouse Up" + staggering every 50px = volume up repeatedly
+    
     MOVEMENTS = [
         "Mouse Up",
         "Mouse Down",
@@ -1041,8 +1058,21 @@ class MouseGesture(Condition):
     ]
 
     def __init__(self, movements, warn=True):
+        # TODO: Support dict input format for staggering:
+        # movements can be:
+        # - str/list: ["Mouse Up"] (legacy, no staggering)
+        # - dict: {"movements": ["Mouse Up"], "staggering": True, "distance": 50}
         if isinstance(movements, str):
             movements = [movements]
+        # TODO: Extract staggering params from dict if provided
+        # self.staggering = False
+        # self.stagger_distance = 0
+        # if isinstance(movements, dict):
+        #     self.movements = movements.get("movements", [])
+        #     self.staggering = movements.get("staggering", False)
+        #     self.stagger_distance = movements.get("distance", 50)
+        # else:
+        #     self.movements = movements
         for x in movements:
             if x not in self.MOVEMENTS and x not in CONTROL:
                 if warn:
@@ -1053,6 +1083,26 @@ class MouseGesture(Condition):
         return "MouseGesture: " + " ".join(self.movements)
 
     def evaluate(self, feature, notification: HIDPPNotification, device, last_result):
+        # IMPLEMENTATION PLAN - STAGGERING EVALUATION
+        # ============================================
+        # Current: Matches complete gesture sequence once on button release
+        # Target: With staggering, match repeatedly during continuous movement
+        #
+        # PLAN:
+        # 1. Check if staggering is enabled for this gesture
+        # 2. If enabled:
+        #    a. Extract movement data (x, y deltas) from notification
+        #    b. Calculate distance moved in the target direction
+        #    c. Accumulate distance in tracking dict keyed by (device_id, gesture_id)
+        #    d. When accumulated distance >= stagger_distance:
+        #       - Return True (trigger action)
+        #       - Subtract stagger_distance from accumulator (keep remainder)
+        #    e. Otherwise return False (don't trigger yet)
+        # 3. On button release (detected by state change), reset accumulator
+        # 4. For non-staggering gestures, use current logic (match complete sequence)
+        #
+        # This enables continuous triggering like volume adjustment while dragging
+        
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("evaluate condition: %s", self)
         if feature == SupportedFeature.MOUSE_GESTURE:
@@ -1064,6 +1114,13 @@ class MouseGesture(Condition):
                 movement_offset = 1
                 if self.movements[0] != str(CONTROL[data[0]]):
                     return False
+            # TODO: Add staggering logic here
+            # if self.staggering:
+            #     # Extract x, y movement from data
+            #     # Calculate directional distance for movements[movement_offset]
+            #     # Update accumulator
+            #     # Return True if threshold exceeded
+            #     pass
             for m in self.movements[movement_offset:]:
                 if data_offset >= len(data):
                     return False
@@ -1080,6 +1137,13 @@ class MouseGesture(Condition):
         return False
 
     def data(self):
+        # TODO: Include staggering parameters in serialization
+        # if self.staggering:
+        #     return {"MouseGesture": {
+        #         "movements": [str(m) for m in self.movements],
+        #         "staggering": True,
+        #         "distance": self.stagger_distance
+        #     }}
         return {"MouseGesture": [str(m) for m in self.movements]}
 
 

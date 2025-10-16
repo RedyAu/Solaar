@@ -515,6 +515,34 @@ class TestBytesUI(ConditionUI):
 
 
 class MouseGestureUI(ConditionUI):
+    # IMPLEMENTATION PLAN - UI FOR STAGGERING FEATURE
+    # ===============================================
+    # Need to add UI controls for:
+    # 1. Checkbox: "Enable Staggering" (bool)
+    # 2. SpinButton: "Stagger Distance" (int, pixels, range: 10-500, default: 50)
+    # 
+    # LAYOUT PLAN:
+    # Row 0: Existing label
+    # Row 1-N: Existing movement fields
+    # Row N+1: "Add movement" button
+    # Row N+2: NEW - Staggering checkbox
+    # Row N+3: NEW - Staggering distance spinner (only visible when checkbox enabled)
+    #
+    # WIDGET CHANGES:
+    # - Add self.staggering_checkbox: Gtk.CheckButton
+    # - Add self.stagger_distance_field: Gtk.SpinButton (10-500 range)
+    # - Connect signals to _on_update
+    # - In show(): load staggering values from component
+    # - In collect_value(): return dict with movements and staggering params
+    #
+    # DATA FORMAT CHANGE:
+    # Old: ["Mouse Up", "Mouse Down"]
+    # New (with staggering): {
+    #   "movements": ["Mouse Up"],
+    #   "staggering": True,
+    #   "distance": 50
+    # }
+    
     CLASS = diversion.MouseGesture
     MOUSE_GESTURE_NAMES = [
         "Mouse Up",
@@ -541,6 +569,19 @@ class MouseGestureUI(ConditionUI):
         self.add_btn = Gtk.Button(label=_("Add movement"), halign=Gtk.Align.CENTER, valign=Gtk.Align.END, hexpand=True)
         self.add_btn.connect(GtkSignal.CLICKED.value, self._clicked_add)
         self.widgets[self.add_btn] = (1, 1, 1, 1)
+        
+        # TODO: Add staggering widgets here:
+        # self.staggering_checkbox = Gtk.CheckButton(label=_("Enable Staggering"))
+        # self.staggering_checkbox.connect(GtkSignal.TOGGLED.value, self._on_staggering_toggled)
+        # self.widgets[self.staggering_checkbox] = (0, 2, 2, 1)  # Row will be adjusted dynamically
+        #
+        # self.stagger_distance_label = Gtk.Label(label=_("Stagger Distance (pixels):"))
+        # self.widgets[self.stagger_distance_label] = (2, 2, 1, 1)
+        #
+        # self.stagger_distance_field = Gtk.SpinButton.new_with_range(10, 500, 5)
+        # self.stagger_distance_field.set_value(50)
+        # self.stagger_distance_field.connect(GtkSignal.VALUE_CHANGED.value, self._on_update)
+        # self.widgets[self.stagger_distance_field] = (3, 2, 1, 1)
 
     def _create_field(self):
         field = Gtk.ComboBoxText.new_with_entry()
@@ -583,11 +624,20 @@ class MouseGestureUI(ConditionUI):
                 f.get_child().set_icon_from_icon_name(Gtk.EntryIconPosition.SECONDARY, icon)
 
     def show(self, component, editable=True):
+        # TODO: Extract staggering params from component if present
+        # If component has staggering attributes:
+        #   - self.staggering_checkbox.set_active(component.staggering)
+        #   - self.stagger_distance_field.set_value(component.stagger_distance)
+        #   - self.stagger_distance_field.set_visible(component.staggering)
         n = len(component.movements)
         while len(self.fields) < n:
             self._create_field()
             self._create_del_btn()
         self.widgets[self.add_btn] = (n + 1, 1, 1, 1)
+        # TODO: Adjust staggering widget positions based on n
+        # self.widgets[self.staggering_checkbox] = (0, n + 2, 2, 1)
+        # self.widgets[self.stagger_distance_label] = (2, n + 2, 1, 1)
+        # self.widgets[self.stagger_distance_field] = (3, n + 2, 1, 1)
         super().show(component, editable)
         for i in range(n):
             field = self.fields[i]
@@ -601,6 +651,13 @@ class MouseGestureUI(ConditionUI):
         self.add_btn.set_valign(Gtk.Align.END if n >= 1 else Gtk.Align.CENTER)
 
     def collect_value(self):
+        # TODO: Return dict format when staggering is enabled
+        # if self.staggering_checkbox.get_active():
+        #     return {
+        #         "movements": [f.get_active_text().strip() for f in self.fields if f.get_visible()],
+        #         "staggering": True,
+        #         "distance": int(self.stagger_distance_field.get_value())
+        #     }
         return [f.get_active_text().strip() for f in self.fields if f.get_visible()]
 
     @classmethod
