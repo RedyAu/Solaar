@@ -515,34 +515,6 @@ class TestBytesUI(ConditionUI):
 
 
 class MouseGestureUI(ConditionUI):
-    # IMPLEMENTATION PLAN - UI FOR STAGGERING FEATURE
-    # ===============================================
-    # Need to add UI controls for:
-    # 1. Checkbox: "Enable Staggering" (bool)
-    # 2. SpinButton: "Stagger Distance" (int, pixels, range: 10-500, default: 50)
-    # 
-    # LAYOUT PLAN:
-    # Row 0: Existing label
-    # Row 1-N: Existing movement fields
-    # Row N+1: "Add movement" button
-    # Row N+2: NEW - Staggering checkbox
-    # Row N+3: NEW - Staggering distance spinner (only visible when checkbox enabled)
-    #
-    # WIDGET CHANGES:
-    # - Add self.staggering_checkbox: Gtk.CheckButton
-    # - Add self.stagger_distance_field: Gtk.SpinButton (10-500 range)
-    # - Connect signals to _on_update
-    # - In show(): load staggering values from component
-    # - In collect_value(): return dict with movements and staggering params
-    #
-    # DATA FORMAT CHANGE:
-    # Old: ["Mouse Up", "Mouse Down"]
-    # New (with staggering): {
-    #   "movements": ["Mouse Up"],
-    #   "staggering": True,
-    #   "distance": 50
-    # }
-    
     CLASS = diversion.MouseGesture
     MOUSE_GESTURE_NAMES = [
         "Mouse Up",
@@ -570,18 +542,27 @@ class MouseGestureUI(ConditionUI):
         self.add_btn.connect(GtkSignal.CLICKED.value, self._clicked_add)
         self.widgets[self.add_btn] = (1, 1, 1, 1)
         
-        # TODO: Add staggering widgets here:
-        # self.staggering_checkbox = Gtk.CheckButton(label=_("Enable Staggering"))
-        # self.staggering_checkbox.connect(GtkSignal.TOGGLED.value, self._on_staggering_toggled)
-        # self.widgets[self.staggering_checkbox] = (0, 2, 2, 1)  # Row will be adjusted dynamically
-        #
-        # self.stagger_distance_label = Gtk.Label(label=_("Stagger Distance (pixels):"))
-        # self.widgets[self.stagger_distance_label] = (2, 2, 1, 1)
-        #
-        # self.stagger_distance_field = Gtk.SpinButton.new_with_range(10, 500, 5)
-        # self.stagger_distance_field.set_value(50)
-        # self.stagger_distance_field.connect(GtkSignal.VALUE_CHANGED.value, self._on_update)
-        # self.widgets[self.stagger_distance_field] = (3, 2, 1, 1)
+        # Staggering widgets
+        self.staggering_checkbox = Gtk.CheckButton(
+            label=_("Enable Staggering (trigger repeatedly every N pixels)"),
+            halign=Gtk.Align.START,
+            valign=Gtk.Align.CENTER,
+        )
+        self.staggering_checkbox.connect(GtkSignal.TOGGLED.value, self._on_staggering_toggled)
+        self.widgets[self.staggering_checkbox] = (0, 2, 5, 1)  # Row will be adjusted dynamically
+        
+        self.stagger_distance_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6, halign=Gtk.Align.CENTER)
+        self.stagger_distance_label = Gtk.Label(label=_("Stagger Distance:"), halign=Gtk.Align.END)
+        self.stagger_distance_field = Gtk.SpinButton.new_with_range(10, 500, 5)
+        self.stagger_distance_field.set_value(50)
+        self.stagger_distance_field.set_digits(0)
+        self.stagger_distance_field.connect(GtkSignal.VALUE_CHANGED.value, self._on_update)
+        self.stagger_distance_units = Gtk.Label(label=_("pixels"), halign=Gtk.Align.START)
+        
+        self.stagger_distance_box.pack_start(self.stagger_distance_label, False, False, 0)
+        self.stagger_distance_box.pack_start(self.stagger_distance_field, False, False, 0)
+        self.stagger_distance_box.pack_start(self.stagger_distance_units, False, False, 0)
+        self.widgets[self.stagger_distance_box] = (0, 3, 5, 1)  # Row will be adjusted dynamically
 
     def _create_field(self):
         field = Gtk.ComboBoxText.new_with_entry()
@@ -601,17 +582,33 @@ class MouseGestureUI(ConditionUI):
         return btn
 
     def _clicked_add(self, _btn):
-        self.component.__init__(self.collect_value() + [""], warn=False)
+        value = self.collect_value()
+        # Handle both dict and list formats
+        if isinstance(value, dict):
+            value["movements"].append("")
+        else:
+            value = value + [""]
+        self.component.__init__(value, warn=False)
         self.show(self.component, editable=True)
         self.fields[len(self.component.movements) - 1].grab_focus()
 
     def _clicked_del(self, _btn, pos):
         v = self.collect_value()
-        v.pop(pos)
+        # Handle both dict and list formats
+        if isinstance(v, dict):
+            v["movements"].pop(pos)
+        else:
+            v.pop(pos)
         self.component.__init__(v, warn=False)
         self.show(self.component, editable=True)
         self._on_update_callback()
 
+    def _on_staggering_toggled(self, checkbox):
+        """Handle staggering checkbox toggle"""
+        is_active = checkbox.get_active()
+        self.stagger_distance_box.set_sensitive(is_active)
+        self._on_update()
+    
     def _on_update(self, *args):
         super()._on_update(*args)
         for i, f in enumerate(self.fields):
@@ -624,21 +621,19 @@ class MouseGestureUI(ConditionUI):
                 f.get_child().set_icon_from_icon_name(Gtk.EntryIconPosition.SECONDARY, icon)
 
     def show(self, component, editable=True):
-        # TODO: Extract staggering params from component if present
-        # If component has staggering attributes:
-        #   - self.staggering_checkbox.set_active(component.staggering)
-        #   - self.stagger_distance_field.set_value(component.stagger_distance)
-        #   - self.stagger_distance_field.set_visible(component.staggering)
         n = len(component.movements)
         while len(self.fields) < n:
             self._create_field()
             self._create_del_btn()
+        
+        # Position add button and staggering widgets dynamically based on number of movements
         self.widgets[self.add_btn] = (n + 1, 1, 1, 1)
-        # TODO: Adjust staggering widget positions based on n
-        # self.widgets[self.staggering_checkbox] = (0, n + 2, 2, 1)
-        # self.widgets[self.stagger_distance_label] = (2, n + 2, 1, 1)
-        # self.widgets[self.stagger_distance_field] = (3, n + 2, 1, 1)
+        self.widgets[self.staggering_checkbox] = (0, n + 2, 5, 1)
+        self.widgets[self.stagger_distance_box] = (0, n + 3, 5, 1)
+        
         super().show(component, editable)
+        
+        # Show movement fields
         for i in range(n):
             field = self.fields[i]
             with self.ignore_changes():
@@ -649,16 +644,26 @@ class MouseGestureUI(ConditionUI):
             self.fields[i].hide()
             self.del_btns[i].hide()
         self.add_btn.set_valign(Gtk.Align.END if n >= 1 else Gtk.Align.CENTER)
+        
+        # Load staggering parameters from component
+        with self.ignore_changes():
+            self.staggering_checkbox.set_active(component.staggering)
+            self.stagger_distance_field.set_value(component.stagger_distance if component.stagger_distance else 50)
+            self.stagger_distance_box.set_sensitive(component.staggering)
 
     def collect_value(self):
-        # TODO: Return dict format when staggering is enabled
-        # if self.staggering_checkbox.get_active():
-        #     return {
-        #         "movements": [f.get_active_text().strip() for f in self.fields if f.get_visible()],
-        #         "staggering": True,
-        #         "distance": int(self.stagger_distance_field.get_value())
-        #     }
-        return [f.get_active_text().strip() for f in self.fields if f.get_visible()]
+        movements = [f.get_active_text().strip() for f in self.fields if f.get_visible()]
+        
+        # Return dict format when staggering is enabled
+        if self.staggering_checkbox.get_active():
+            return {
+                "movements": movements,
+                "staggering": True,
+                "distance": int(self.stagger_distance_field.get_value())
+            }
+        
+        # Return list format for non-staggering (legacy compatibility)
+        return movements
 
     @classmethod
     def left_label(cls, component):
@@ -669,4 +674,7 @@ class MouseGestureUI(ConditionUI):
         if len(component.movements) == 0:
             return "No-op"
         else:
-            return " -> ".join(component.movements)
+            label = " -> ".join(component.movements)
+            if component.staggering:
+                label += f" (staggering: {component.stagger_distance}px)"
+            return label
