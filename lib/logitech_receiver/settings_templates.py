@@ -869,22 +869,23 @@ class MouseGesturesXY(settings.RawXYProcessing):
             if self.lastEv is not None and now - self.lastEv > 200.0:
                 self.push_mouse_event()
             dpi = self.dpiSetting.read() if self.dpiSetting else 1000
-            dx = float(dx) / float(dpi) * 15.0  # This multiplier yields a more-or-less DPI-independent dx of about 5/cm
-            self.dx += dx
-            dy = float(dy) / float(dpi) * 15.0  # This multiplier yields a more-or-less DPI-independent dx of about 5/cm
-            self.dy += dy
+            dx_norm = float(dx) / float(dpi) * 15.0  # This multiplier yields a more-or-less DPI-independent dx of about 5/cm
+            self.dx += dx_norm
+            dy_norm = float(dy) / float(dpi) * 15.0  # This multiplier yields a more-or-less DPI-independent dx of about 5/cm
+            self.dy += dy_norm
             self.lastEv = now
             
             # Send incremental notification for staggering rules
+            # Use accumulated self.dx/self.dy values (not the per-event dx_norm/dy_norm which are too small)
             # Rate limit to 50 Hz (20ms minimum interval)
             MIN_NOTIFICATION_INTERVAL_MS = 20
-            if (dx != 0 or dy != 0) and (
+            if (self.dx != 0 or self.dy != 0) and (
                 self.last_incremental_notification is None or 
                 (now - self.last_incremental_notification) >= MIN_NOTIFICATION_INTERVAL_MS
             ):
                 # Create incremental notification: [key_code, -1, dx, dy]
                 # The -1 marker indicates this is an incremental update (not complete gesture)
-                incremental_data = [self.data[0], -1, int(dx), int(dy)]
+                incremental_data = [self.data[0], -1, int(self.dx), int(self.dy)]
                 incremental_payload = struct.pack("!" + (len(incremental_data) * "h"), *incremental_data)
                 incremental_notification = base.HIDPPNotification(0, 0, 0, 0, incremental_payload)
                 diversion.process_notification(self.device, incremental_notification, _F.MOUSE_GESTURE)
@@ -892,7 +893,7 @@ class MouseGesturesXY(settings.RawXYProcessing):
                 
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug("incremental gesture notification: key=%s dx=%d dy=%d", 
-                               self.data[0], int(dx), int(dy))
+                               self.data[0], int(self.dx), int(self.dy))
 
     def key_action(self, key):
         self.push_mouse_event()
