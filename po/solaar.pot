@@ -1708,6 +1708,22 @@ msgstr  ""
 msgid   "X11 active process. For use in X11 only."
 msgstr  ""
 
+#: lib/solaar/ui/rule_conditions.py:549
+msgid   "Enable staggering (trigger repeatedly every N pixels)"
+msgstr  ""
+
+#: lib/solaar/ui/rule_conditions.py:556
+msgid   "Stagger distance:"
+msgstr  ""
+
+#: lib/solaar/ui/rule_conditions.py:568
+msgid   "Dead zone:"
+msgstr  ""
+
+#: lib/solaar/ui/rule_conditions.py:562 lib/solaar/ui/rule_conditions.py:574
+msgid   "pixels"
+msgstr  ""
+
 #: lib/solaar/ui/rule_conditions.py:82
 msgid   "X11 mouse process. For use in X11 only."
 msgstr  ""
