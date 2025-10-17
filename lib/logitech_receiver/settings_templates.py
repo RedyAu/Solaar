@@ -819,6 +819,9 @@ class DpiSlidingXY(settings.RawXYProcessing):
 class MouseGesturesXY(settings.RawXYProcessing):
     """Process mouse gestures with support for staggering (repeated triggering during movement)."""
     
+    # Rate limiting for incremental notifications (50 Hz = 20ms minimum interval)
+    MIN_NOTIFICATION_INTERVAL_MS = 20
+    
     def activate_action(self):
         self.dpiSetting = next(filter(lambda s: s.name == "dpi" or s.name == "dpi_extended", self.device.settings), None)
         self.fsmState = State.IDLE
@@ -879,8 +882,7 @@ class MouseGesturesXY(settings.RawXYProcessing):
             
             # Send incremental notification for staggering rules using RAW pixel counts
             # Accumulate raw pixel values to preserve sub-pixel precision for slow movements
-            # Rate limit to 50 Hz (20ms minimum interval)
-            MIN_NOTIFICATION_INTERVAL_MS = 20
+            # Rate limit to 50 Hz using class constant
             self.dx_raw = getattr(self, 'dx_raw', 0.0) + dx  # Accumulate as float to preserve fractional pixels
             self.dy_raw = getattr(self, 'dy_raw', 0.0) + dy
             
@@ -891,7 +893,7 @@ class MouseGesturesXY(settings.RawXYProcessing):
             
             if (dx_to_send != 0 or dy_to_send != 0) and (
                 self.last_incremental_notification is None or 
-                (now - self.last_incremental_notification) >= MIN_NOTIFICATION_INTERVAL_MS
+                (now - self.last_incremental_notification) >= self.MIN_NOTIFICATION_INTERVAL_MS
             ):
                 for chunk_dx, chunk_dy in self._split_movement(dx_to_send, dy_to_send):
                     incremental_data = [self.data[0], -1, chunk_dx, chunk_dy]

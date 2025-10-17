@@ -18,6 +18,7 @@ from enum import Enum
 
 from gi.repository import Gtk
 from logitech_receiver import diversion
+from logitech_receiver.diversion import DEFAULT_STAGGER_DISTANCE
 from logitech_receiver.diversion import Key
 from logitech_receiver.hidpp20 import SupportedFeature
 from logitech_receiver.special_keys import CONTROL
@@ -555,7 +556,7 @@ class MouseGestureUI(ConditionUI):
 
         self.stagger_distance_label = Gtk.Label(label=_("Stagger distance:"), halign=Gtk.Align.END)
         self.stagger_distance_field = Gtk.SpinButton.new_with_range(1, 1000, 1)
-        self.stagger_distance_field.set_value(50)
+        self.stagger_distance_field.set_value(DEFAULT_STAGGER_DISTANCE)
         self.stagger_distance_field.set_digits(0)
         self.stagger_distance_field.set_hexpand(False)
         self.stagger_distance_field.connect(GtkSignal.VALUE_CHANGED.value, self._on_update)
