@@ -58,6 +58,23 @@ if typing.TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Direction mapping for mouse gesture distance calculations
+# Maps direction names to (x_component, y_component) for vector projection
+_DIRECTION_VECTOR_MAP = {
+    "Mouse Up": (0, -1),      # Negative Y
+    "Mouse Down": (0, 1),     # Positive Y
+    "Mouse Left": (-1, 0),    # Negative X
+    "Mouse Right": (1, 0),    # Positive X
+    # Diagonals use both components (normalized to maintain consistent distance)
+    "Mouse Up-left": (-0.707, -0.707),
+    "Mouse Up-right": (0.707, -0.707),
+    "Mouse Down-left": (-0.707, 0.707),
+    "Mouse Down-right": (0.707, 0.707),
+}
+
+# Default stagger distance in pixels
+DEFAULT_STAGGER_DISTANCE = 30
+
 #
 # See docs/rules.md for documentation
 #
@@ -131,6 +148,8 @@ NET_ACTIVE_WINDOW = None
 NET_WM_PID = None
 WM_CLASS = None
 
+# Mouse Gesture Staggering Constants
+DEFAULT_STAGGER_DISTANCE = 30  # Default stagger distance in pixels
 
 udevice = None
 
@@ -350,24 +369,12 @@ def _initial_stagger_state(gesture, movement_offset):
 
 
 def _calculate_directional_distance(dx, dy, direction):
-    """Calculate distance moved in specific direction"""
-    # Map direction to axis and sign
-    direction_map = {
-        "Mouse Up": (0, -1),      # Negative Y
-        "Mouse Down": (0, 1),     # Positive Y
-        "Mouse Left": (-1, 0),    # Negative X
-        "Mouse Right": (1, 0),    # Positive X
-        # Diagonals use both components
-        "Mouse Up-left": (-0.707, -0.707),
-        "Mouse Up-right": (0.707, -0.707),
-        "Mouse Down-left": (-0.707, 0.707),
-        "Mouse Down-right": (0.707, 0.707),
-    }
-    
-    x_factor, y_factor = direction_map.get(direction, (0, 0))
+    """Calculate distance moved in specific direction using module-level direction mapping"""
+    x_factor, y_factor = _DIRECTION_VECTOR_MAP.get(direction, (0, 0))
     # Project movement onto direction vector
     distance = (dx * x_factor) + (dy * y_factor)
     return max(0, distance)  # Only count positive movement in target direction
+
 
 
 def simulate_xtest(code, event):
@@ -1098,14 +1105,15 @@ class MouseGesture(Condition):
             self.movements = movements_data
             self.staggering = movements.get("staggering", False)
             try:
-                self.stagger_distance = int(movements.get("distance", 50))
+                self.stagger_distance = int(movements.get("distance", DEFAULT_STAGGER_DISTANCE))
             except (TypeError, ValueError):
                 if warn:
                     logger.warning(
-                        "rule Mouse Gesture staggering distance invalid: %s. Using default 50.",
+                        "rule Mouse Gesture staggering distance invalid: %s. Using default %d.",
                         movements.get("distance"),
+                        DEFAULT_STAGGER_DISTANCE,
                     )
-                self.stagger_distance = 50
+                self.stagger_distance = DEFAULT_STAGGER_DISTANCE
             try:
                 self.dead_zone = int(movements.get("dead_zone", 0))
             except (TypeError, ValueError):
