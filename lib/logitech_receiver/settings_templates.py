@@ -842,7 +842,7 @@ class MouseGesturesXY(settings.RawXYProcessing):
 
     def release_action(self):
         if self.fsmState == State.PRESSED:
-            # emit mouse gesture notification (complete)
+            # emit mouse gesture notification when the button is released
             self.push_mouse_event()
             if logger.isEnabledFor(logging.INFO):
                 logger.info("mouse gesture notification %s", self.data)
