@@ -918,6 +918,8 @@ class MouseGesturesXY(settings.RawXYProcessing):
         self.lastEv = time() * 1000  # time_ns() / 1e6
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("mouse gesture key event %d %s", key, self.data)
+        if self.fsmState == State.PRESSED:
+            self._send_progress_snapshot()
 
     def push_mouse_event(self):
         x = int(self.dx)
@@ -931,6 +933,8 @@ class MouseGesturesXY(settings.RawXYProcessing):
         self.dy = 0.0
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("mouse gesture move event %d %d %s", x, y, self.data)
+        if self.fsmState == State.PRESSED:
+            self._send_progress_snapshot()
 
     @staticmethod
     def _split_movement(dx, dy, max_step=16):
@@ -961,6 +965,14 @@ class MouseGesturesXY(settings.RawXYProcessing):
         if value < 0:
             return max(value, -max_step)
         return 0
+
+    def _send_progress_snapshot(self):
+        if len(self.data) <= 1:
+            return
+        snapshot = [self.data[0], -2] + self.data[1:]
+        payload = struct.pack("!" + (len(snapshot) * "h"), *snapshot)
+        notification = base.HIDPPNotification(0, 0, 0, 0, payload)
+        diversion.process_notification(self.device, notification, _F.MOUSE_GESTURE)
 
 
 class DivertKeys(settings.Settings):

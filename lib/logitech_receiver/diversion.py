@@ -338,6 +338,17 @@ def _get_accumulator_key(device, gesture):
     return (id(device), gesture_id)
 
 
+def _initial_stagger_state(gesture, movement_offset):
+    has_additional_steps = gesture._last_movement_index is not None and (
+        gesture._last_movement_index - movement_offset
+    ) > 0
+    return {
+        "accum": 0.0,
+        "threshold": gesture.stagger_distance + max(0, gesture.dead_zone),
+        "prefix_complete": not has_additional_steps,
+    }
+
+
 def _calculate_directional_distance(dx, dy, direction):
     """Calculate distance moved in specific direction"""
     # Map direction to axis and sign
@@ -1105,16 +1116,16 @@ class MouseGesture(Condition):
                     )
                 self.dead_zone = 0
             
-            # Validate: staggering only allowed with single-direction gestures
+            # Validate staggering parameters
             if self.staggering:
-                # Count actual movement directions (not initiating keys)
-                movement_count = sum(1 for m in self.movements if m in self.MOVEMENTS)
-                if movement_count != 1:
+                direction_positions = [index for index, value in enumerate(self.movements) if value in self.MOVEMENTS]
+                if not direction_positions:
                     if warn:
-                        logger.warning(
-                            "rule Mouse Gesture staggering requires exactly one direction, got %d: %s. Disabling staggering.",
-                            movement_count, self.movements
-                        )
+                        logger.warning("rule Mouse Gesture staggering requires at least one movement direction. Disabling staggering.")
+                    self.staggering = False
+                elif direction_positions[-1] != len(self.movements) - 1:
+                    if warn:
+                        logger.warning("rule Mouse Gesture staggering requires the last step to be a movement direction. Disabling staggering.")
                     self.staggering = False
                 if self.stagger_distance <= 0:
                     if warn:
@@ -1137,6 +1148,13 @@ class MouseGesture(Condition):
             self.staggering = False
             self.stagger_distance = 0
             self.dead_zone = 0
+
+        # Pre-compute position of final movement for staggering logic
+        self._last_movement_index = None
+        for idx in range(len(self.movements) - 1, -1, -1):
+            if self.movements[idx] in self.MOVEMENTS:
+                self._last_movement_index = idx
+                break
         
         # Validate movements
         for x in self.movements:
@@ -1160,8 +1178,9 @@ class MouseGesture(Condition):
             d = notification.data
             data = struct.unpack("!" + (int(len(d) / 2) * "h"), d)
             
-            # Detect notification type: incremental (-1) or complete (0)
-            is_incremental = len(data) == 4 and data[1] == -1
+            marker = data[1] if len(data) >= 2 else None
+            is_incremental = len(data) == 4 and marker == -1
+            is_progress = marker == -2
             
             # Verify initiating key if specified
             movement_offset = 0
@@ -1170,9 +1189,14 @@ class MouseGesture(Condition):
                 if self.movements[0] != str(CONTROL[data[0]]):
                     return False
             
-            # Staggering mode: process incremental notifications
-            if self.staggering and is_incremental:
-                return self._evaluate_staggering(data, device, movement_offset)
+            if self.staggering:
+                if is_progress:
+                    return self._handle_progress_snapshot(data, device, movement_offset)
+                if is_incremental:
+                    return self._evaluate_staggering(data, device, movement_offset)
+                # Treat non-incremental packets as the end of an incremental sequence.
+                self._clear_stagger_state(device)
+                return False
             
             # Batch mode: process complete gesture (existing logic)
             if not self.staggering and not is_incremental:
@@ -1185,12 +1209,11 @@ class MouseGesture(Condition):
     def _evaluate_staggering(self, data, device, movement_offset):
         """Evaluate incremental movement for staggering"""
         key_code, marker, dx, dy = data
-        
-        # Get target direction
-        if movement_offset == 0:
-            target_direction = self.movements[0] if self.movements else None
-        else:
-            target_direction = self.movements[1] if len(self.movements) > 1 else None
+
+        if self._last_movement_index is None:
+            return False
+
+        target_direction = self.movements[self._last_movement_index]
         
         if not target_direction or target_direction not in self.MOVEMENTS:
             return False
@@ -1204,10 +1227,11 @@ class MouseGesture(Condition):
         acc_key = _get_accumulator_key(device, self)
         state = _stagger_accumulators.get(acc_key)
         if state is None:
-            state = {
-                "accum": 0.0,
-                "threshold": self.stagger_distance + max(0, self.dead_zone),
-            }
+            state = _initial_stagger_state(self, movement_offset)
+
+        if not state.get("prefix_complete", False):
+            _stagger_accumulators[acc_key] = state
+            return False
 
         state["accum"] += directional_distance
 
@@ -1231,6 +1255,64 @@ class MouseGesture(Condition):
 
         _stagger_accumulators[acc_key] = state
         return False
+
+    def _handle_progress_snapshot(self, data, device, movement_offset):
+        if self._last_movement_index is None or not self.staggering:
+            return False
+
+        acc_key = _get_accumulator_key(device, self)
+        state = _stagger_accumulators.get(acc_key)
+        if state is None:
+            state = _initial_stagger_state(self, movement_offset)
+
+        snapshot = [data[0]] + list(data[2:])
+        prefix_complete = self._prefix_matches(snapshot, movement_offset)
+
+        if prefix_complete:
+            state["prefix_complete"] = True
+        else:
+            state = _initial_stagger_state(self, movement_offset)
+
+        _stagger_accumulators[acc_key] = state
+        return False
+
+    def _prefix_matches(self, snapshot, movement_offset):
+        if self._last_movement_index is None:
+            return False
+
+        required_last_index = self._last_movement_index
+        # No prefix requirements when the last movement is the first element after offset
+        if required_last_index - movement_offset <= 0:
+            return True
+
+        data_offset = 1
+        movement_index = movement_offset
+
+        while movement_index < required_last_index:
+            if data_offset >= len(snapshot):
+                return False
+
+            token = snapshot[data_offset]
+            if token == 0:
+                if data_offset + 2 >= len(snapshot):
+                    return False
+                direction = xy_direction(snapshot[data_offset + 1], snapshot[data_offset + 2])
+                if self.movements[movement_index] != direction:
+                    return False
+                data_offset += 3
+            elif token == 1:
+                if data_offset + 1 >= len(snapshot):
+                    return False
+                expected = self.movements[movement_index]
+                if expected != str(CONTROL[snapshot[data_offset + 1]]):
+                    return False
+                data_offset += 2
+            else:
+                return False
+
+            movement_index += 1
+
+        return movement_index == required_last_index
     
     def _evaluate_batch(self, data, movement_offset):
         """Evaluate complete gesture (existing logic)"""
@@ -1248,6 +1330,10 @@ class MouseGesture(Condition):
                     return False
                 data_offset += 2
         return data_offset == len(data)
+
+    def _clear_stagger_state(self, device):
+        acc_key = _get_accumulator_key(device, self)
+        _stagger_accumulators.pop(acc_key, None)
 
     def data(self):
         if self.staggering:
