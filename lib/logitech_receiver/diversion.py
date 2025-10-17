@@ -149,7 +149,6 @@ NET_WM_PID = None
 WM_CLASS = None
 
 # Mouse Gesture Staggering Constants
-DEFAULT_STAGGER_DISTANCE = 30  # Default stagger distance in pixels
 
 udevice = None
 
