@@ -1,12 +1,109 @@
 """Tests for mouse gesture staggering feature"""
 import struct
+import sys
+import types
 from unittest import mock
 
 import pytest
 
+if "evdev" not in sys.modules or getattr(sys.modules.get("evdev"), "ecodes", None) is None:
+    evdev_stub = types.ModuleType("evdev")
+
+    class _Ecodes:
+        EV_KEY = 0x01
+        EV_REL = 0x02
+        REL_WHEEL = 0x08
+        REL_HWHEEL = 0x0B
+        ecodes = {
+            "BTN_LEFT": 0x110,
+            "BTN_MIDDLE": 0x112,
+            "BTN_RIGHT": 0x111,
+            "BTN_4": 0x113,
+            "BTN_5": 0x114,
+            "BTN_6": 0x115,
+            "BTN_7": 0x116,
+            "BTN_8": 0x117,
+            "BTN_9": 0x118,
+            "BTN_SIDE": 0x11A,
+            "BTN_EXTRA": 0x11B,
+            "KEY_A": 0x1E,
+            "KEY_B": 0x30,
+            "KEY_CNT": 0,
+        }
+
+    class _DummyUInput:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def write(self, *args, **kwargs):
+            return None
+
+        def syn(self):
+            return None
+
+        def close(self):
+            return None
+
+    evdev_stub.ecodes = _Ecodes()
+    evdev_stub.uinput = types.SimpleNamespace(UInput=_DummyUInput)
+    sys.modules["evdev"] = evdev_stub
+
+if "gi" not in sys.modules:
+    gi_stub = types.ModuleType("gi")
+
+    def _require_version(_module, _version):
+        return None
+
+    gi_stub.require_version = _require_version
+
+    repository_stub = types.ModuleType("gi.repository")
+
+    class _DummyDisplay:
+        @staticmethod
+        def get_default():
+            return None
+
+    class _DummyKeymap:
+        @staticmethod
+        def get_for_display(_display):
+            return None
+
+    class _DummyGdk:
+        Display = _DummyDisplay
+        Keymap = _DummyKeymap
+        class ModifierType:
+            SHIFT_MASK = 0
+            CONTROL_MASK = 0
+            MOD1_MASK = 0
+            MOD4_MASK = 0
+
+    class _DummyGLib:
+        @staticmethod
+        def timeout_add(_interval, _function, *args, **kwargs):
+            return 0
+
+        @staticmethod
+        def timeout_add_seconds(_interval, _function, *args, **kwargs):
+            return 0
+
+        @staticmethod
+        def idle_add(_function, *args, **kwargs):
+            return 0
+
+    repository_stub.Gdk = _DummyGdk
+    repository_stub.GLib = _DummyGLib
+
+    gi_stub.repository = repository_stub
+
+    sys.modules["gi"] = gi_stub
+    sys.modules["gi.repository"] = repository_stub
+    sys.modules["gi.repository.Gdk"] = _DummyGdk
+    sys.modules["gi.repository.GLib"] = _DummyGLib
+
 from logitech_receiver import diversion
 from logitech_receiver.base import HIDPPNotification
 from logitech_receiver.hidpp20_constants import SupportedFeature
+from logitech_receiver.special_keys import CONTROL
 
 
 class MockDevice:
@@ -334,26 +431,90 @@ def test_rate_limiting_conceptual():
     assert sent_times == [0, 25, 45]
 
 
-def test_staggering_requires_single_direction():
-    """Test that staggering is disabled for multi-direction gestures"""
-    # Multiple directions should disable staggering with warning
+def test_staggering_requires_last_step_movement():
+    """Staggering only allowed when the final step is a movement."""
     config = {
-        "movements": ["Mouse Up", "Mouse Right"],
+        "movements": ["Mouse Up", "Back Button"],
         "staggering": True,
-        "distance": 50
+        "distance": 50,
     }
     gesture = diversion.MouseGesture(config, warn=False)
-    assert gesture.staggering is False  # Should be disabled
-    assert gesture.movements == ["Mouse Up", "Mouse Right"]  # Movements preserved
+    assert gesture.staggering is False
     
-    # Single direction should allow staggering
-    config_single = {
-        "movements": ["Mouse Up"],
+    config_valid = {
+        "movements": ["Mouse Up", "Mouse Right"],
         "staggering": True,
-        "distance": 50
+        "distance": 50,
     }
-    gesture_single = diversion.MouseGesture(config_single, warn=False)
-    assert gesture_single.staggering is True  # Should remain enabled
+    gesture_valid = diversion.MouseGesture(config_valid, warn=False)
+    assert gesture_valid.staggering is True
+
+
+def test_multi_step_staggering_requires_progress_snapshot():
+    gesture = diversion.MouseGesture({
+        "movements": ["Mouse Left", "Mouse Up"],
+        "staggering": True,
+        "distance": 40,
+    })
+    device = MockDevice()
+    diversion._stagger_accumulators.clear()
+
+    key_code = 0xC4
+
+    # Prefix snapshot representing "Mouse Left"
+    snapshot = struct.pack("!hhhhh", key_code, -2, 0, -40, 0)
+    notif_snapshot = HIDPPNotification(0, 0, 0, 0, snapshot)
+    result = gesture.evaluate(SupportedFeature.MOUSE_GESTURE, notif_snapshot, device, None)
+    assert result is False
+
+    # First incremental chunk in final direction (Mouse Up)
+    chunk1 = struct.pack("!hhhh", key_code, -1, 0, -20)
+    notif_chunk1 = HIDPPNotification(0, 0, 0, 0, chunk1)
+    result = gesture.evaluate(SupportedFeature.MOUSE_GESTURE, notif_chunk1, device, None)
+    assert result is False
+
+    # Second chunk crosses threshold
+    chunk2 = struct.pack("!hhhh", key_code, -1, 0, -25)
+    notif_chunk2 = HIDPPNotification(0, 0, 0, 0, chunk2)
+    result = gesture.evaluate(SupportedFeature.MOUSE_GESTURE, notif_chunk2, device, None)
+    assert result is True
+
+
+def test_staggering_with_key_prefix():
+    """Ensure staggering works with initiating key followed by movement."""
+    for candidate in ("Back", "Back Button"):
+        if candidate in CONTROL:
+            key_name = candidate
+            break
+    else:
+        key_name = str(next(iter(CONTROL)))
+    movements = [key_name, "Mouse Up"]
+    gesture = diversion.MouseGesture({
+        "movements": movements,
+        "staggering": True,
+        "distance": 30,
+    }, warn=False)
+    assert gesture.staggering is True
+
+    device = MockDevice()
+    diversion._stagger_accumulators.clear()
+
+    key_value = CONTROL[key_name]
+    key_code = int(key_value)
+
+    # Snapshot indicating key press (event type 1)
+    snapshot = struct.pack("!hhhh", key_code, -2, 1, key_code)
+    notif_snapshot = HIDPPNotification(0, 0, 0, 0, snapshot)
+    gesture.evaluate(SupportedFeature.MOUSE_GESTURE, notif_snapshot, device, None)
+
+    # Incremental chunks for final movement (Mouse Up)
+    chunk = struct.pack("!hhhh", key_code, -1, 0, -20)
+    notif_chunk = HIDPPNotification(0, 0, 0, 0, chunk)
+    assert not gesture.evaluate(SupportedFeature.MOUSE_GESTURE, notif_chunk, device, None)
+
+    chunk2 = struct.pack("!hhhh", key_code, -1, 0, -15)
+    notif_chunk2 = HIDPPNotification(0, 0, 0, 0, chunk2)
+    assert gesture.evaluate(SupportedFeature.MOUSE_GESTURE, notif_chunk2, device, None)
 
 
 def test_staggering_with_initiating_key_and_single_direction():
